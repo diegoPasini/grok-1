@@ -16,8 +16,8 @@ import functools
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
-
+from typing import Any, Callable, List, NamedTuple, Optional, Tuple, Union
+from quantize import dequantize_from_4bit_normal_float
 import haiku as hk
 import jax
 import jax.experimental.maps
@@ -559,6 +559,10 @@ class Linear(hk.Linear):
         w = hk.get_parameter(
             "w", [input_size, output_size], jnp.float32, init=hk.initializers.Constant(0)
         )
+
+        # Dequantize the weight if it is in nf4 format
+        if hasattr(w, "scales"):
+            w = dequantize_from_4bit_normal_float(w)
 
         lora_A = hk.get_parameter(
             "lora_A", [input_size, self.rank], jnp.float32, init=hk.initializers.RandomNormal()

@@ -40,6 +40,7 @@ from model import (
     Memory,
     KVMemory,
 )
+from quantize import quantize_to_4bit_normal_float
 
 logger = logging.getLogger(__name__)
 rank_logger = logging.getLogger("rank")
@@ -246,6 +247,10 @@ class ModelRunner:
             )
 
             del init_state
+
+        # Quantize the model parameters
+        state.params = jax.tree_map(quantize_to_4bit_normal_float, state.params)
+
         return state
 
 
@@ -603,3 +608,4 @@ def sample_from_model(server, prompt, max_len, temperature):
         max_len=max_len,
     )
     return server.send(inp)
+
