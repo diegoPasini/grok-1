@@ -531,6 +531,7 @@ class Linear(hk.Linear):
         mesh: Any = None,
         name: Optional[str] = None,
         shard_axis: int = 0,
+        rank: int = 4,  
     ):
         super().__init__(
             output_size=output_size,
@@ -540,12 +541,13 @@ class Linear(hk.Linear):
         self.sharding = sharding
         self.mesh = mesh
         self.shard_axis = shard_axis
+        self.rank = rank  
 
     def __call__(
         self,
         inputs: jax.Array,
     ) -> jax.Array:
-        """Computes a linear transform of the input."""
+        """Computes a linear transform of the input with QLoRA."""
 
         fprop_dtype = inputs.dtype
         if not inputs.shape:
@@ -558,7 +560,18 @@ class Linear(hk.Linear):
             "w", [input_size, output_size], jnp.float32, init=hk.initializers.Constant(0)
         )
 
-        if hasattr(w, "scales"):
+        lora_A = hk.get_parameter(
+            "lora_A", [input_size, self.rank], jnp.float32, init=hk.initializers.RandomNormal()
+        )
+        lora_B = hk.get_parameter(
+            "lora_B", [self.rank, output_size], jnp.float32, init=hk.initializers.RandomNormal()
+        )
+
+        lora_weight = jnp.dot(lora_A, lora_B)
+
+        effective_weight = w + lora_weight
+
+        if hasattr(effective_weight, "scales"):
             shape = inputs.shape
             inputs = jnp.reshape(inputs, (-1, shape[-1]))
 
@@ -572,8 +585,9 @@ class Linear(hk.Linear):
             def mul(w, s):
                 return w.astype(s.dtype) * s
 
-            w = mul(w.weight, w.scales)
-        out = jnp.dot(inputs, w.astype(fprop_dtype))
+            effective_weight = mul(effective_weight.weight, effective_weight.scales)
+
+        out = jnp.dot(inputs, effective_weight.astype(fprop_dtype))
         if self.with_bias:
             b = hk.get_parameter(
                 "b", [self.output_size], jnp.float32, init=hk.initializers.Constant(0)
